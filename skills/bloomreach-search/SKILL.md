@@ -7,6 +7,23 @@ description: Build and operate Bloomreach Discovery search on a storefront: load
 
 Status legend: VERIFIED = run against the real systems in this project. DOCS = from Bloomreach docs, not yet run. TODO = unknown.
 
+## Scripts (this skill's `scripts/`)
+
+Tested from here. Run them **from the folder that holds `.env.local`** (or set `ENV_FILE`); call them by path, e.g. `bash ~/.claude/skills/bloomreach-search/scripts/search.sh "exide" 3`.
+
+| Script | What it does | Writes? |
+|---|---|---|
+| `search.sh "<q>" [rows]` | Query the staging Search API (reads `BR_SEARCH_*`) and print count + top hits | no |
+| `build.mjs <outDir>` | Read BigCommerce (products, brands, category tree `BC_TREE_ID`, custom fields) and build `records.jsonl` + `attributes.json` for Bloomreach | no (files only) |
+| `apply-schema.sh` | PUT the generated schema (system attributes in family `system`, custom in `main`, `level: parent`, `If-Match`), keeping destinations | **yes**, the guarded collection |
+| `load.sh` | build, then POST the records with `update_mode=full` plus `update-items` and `update-destination-items`, poll the job | **yes**, replaces the type's records and re-syncs the destination |
+| `load-content.mjs [--dry] [--only=a,b]` | Load FAQ / guide / blog documents from a running storefront's `/api/content/export` into Data Hub custom types (schema + records, waits out 429s) | **yes** (not with `--dry`) |
+| `suggest-check.py` | Read-only verdict on whether Autosuggest serves the current catalog (needs `BR_SEARCH_*` in the environment) | no |
+
+**Safety.** Every writing script refuses unless `BR_COLLECTION` equals `BR_GUARD_COLLECTION` (default `demo_rez`), and builds its URLs from the guard name, so it can only ever write to that collection. Test the guard with a copy of the env file via `ENV_FILE=...` (an inline `BR_COLLECTION=...` is overridden by the file). Never run a writing script just to "see if it works": `load.sh` and `apply-schema.sh` really reload and re-sync.
+
+**Project-specific parts of `build.mjs` to adapt for another store:** `BRAND_FIXES`, `stockFor()` (demo stock levels), `BC_TREE_ID`, the custom-field slugging and the keyword rules (`makeKeywords`), and the `product` / `simple_product` item type in `BR_PRODUCT_TYPE`.
+
 ## Credentials (never print or commit values)
 Kept in `<project>/.env.local`:
 - `BR_KEY_ID`, `BR_KEY_SECRET`: HTTP Basic auth (key id = username, secret = password). VERIFIED.
@@ -27,7 +44,7 @@ curl -s -u "$BR_KEY_ID:$BR_KEY_SECRET" "$B"          # collection + item types, 
 - The response has `schema.attributes[]`, `schema.identifiers`, `destinations`, `context_dimensions` and an `etag` (use for optimistic concurrency on update). DOCS: update is `PUT .../configurations/{configuration_id}`.
 - A fresh collection has the 10 system attributes, each with `source_mapping: {mapping_type: json_field, source_value: ""}`, i.e. UNMAPPED. Each needs a `source_value` naming the record field. `identifiers` is empty.
 - Schema update VERIFIED: `PUT .../configurations/latest` with body `{schema:{identifiers, attributes}, destinations}`, header `If-Match: <etag from GET latest>` (428 without it), and every attribute needs `level: "parent"` (400 without it). Returns 200 and a new etag. It replaces the full attribute list, so resend the system attributes too.
-- Applied for biggear-b2b: 10 system + `sku`, `image_urls` + 29 custom String attributes (slugified BC custom field names, `display_name` = original name). Builder script: `scripts/build.mjs` in the project, which writes `records.jsonl` and `attributes.json`. `category_paths` record value: list of paths, each a list of `{id, name}`; mapping type `json_field`. Not yet checked against ingested items.
+- Applied for biggear-b2b: 10 system + `sku`, `image_urls` + 29 custom String attributes (slugified BC custom field names, `display_name` = original name). Builder script: `scripts/build.mjs` in this skill, which writes `records.jsonl` and `attributes.json`. `category_paths` record value: list of paths, each a list of `{id, name}`; mapping type `json_field`. Not yet checked against ingested items.
 - Data type names in the API: `String`, `Integer`, `Float`, `Boolean`, `List.String`, `CategoryPaths`.
 
 ## Schema (simple_product)
@@ -62,7 +79,7 @@ GET /stores/$BC_STORE_HASH/v3/catalog/products?limit=150&include=images,custom_f
 - Field mapping: name to title, custom_url.url to url, images (is_thumbnail) to thumb_image, brand_id to brand name (resolve via `/v3/catalog/brands`), inventory_level to stock_level, price to price, is_visible to active, search_keywords to keywords.
 
 ## Result VERIFIED (biggear-b2b into demo_rez)
-- `bash scripts/load.sh` (guard: refuses unless `BR_COLLECTION=demo_rez`) built and POSTed 150 records with `update_mode=full&on_success_trigger=update-items`. Job state `success` (its `stats` is empty, so verify by listing items).
+- `load.sh` (guard: refuses unless `BR_COLLECTION=demo_rez`) built and POSTed 150 records with `update_mode=full&on_success_trigger=update-items`. Job state `success` (its `stats` is empty, so verify by listing items).
 - Records: `GET $C/records?limit=N`; items: `GET $C/items?limit=N`. Max limit is 100 (200 gives 400); follow `meta.next` to page.
 - 150 items. `category_paths` kept the `[[{id,name},...]]` shape, and every item has title, brand, price, url, thumb_image, image_urls and category_paths. Voltage 133/150, technology 139/150 (custom fields vary per product).
 - `keywords` is empty on all items: BigCommerce `search_keywords` is blank. Fill it from another source if search needs it.
@@ -88,11 +105,11 @@ GET /stores/$BC_STORE_HASH/v3/catalog/products?limit=150&include=images,custom_f
 - The Search API (`staging-core.dxpapi.com/api/v1/core/`, params account_id, auth_key, domain_key, request_type=search, search_type=keyword, q, fl, url, ref_url, request_id, _br_uid_2) is a quick check: `q=*` count and `q=<sku>` hit.
 
 ## Item type must be `product` for Search destinations
-- The destination-items API only supports item_type `product`, so `simple_product` collections will not sync reliably. demo_rez was rebuilt with a `product` type (new type starts with an EMPTY schema and no destinations). Set `BR_PRODUCT_TYPE=product`, run `bash scripts/apply-schema.sh` (guarded to demo_rez; PUT schema with If-Match, keeps destinations), then `bash scripts/load.sh`, then connect the Search destination in the UI (demo_glen / staging). `build.mjs` takes item_type from `BR_PRODUCT_TYPE`.
+- The destination-items API only supports item_type `product`, so `simple_product` collections will not sync reliably. demo_rez was rebuilt with a `product` type (new type starts with an EMPTY schema and no destinations). Set `BR_PRODUCT_TYPE=product`, run `apply-schema.sh` (guarded to demo_rez; PUT schema with If-Match, keeps destinations), then `load.sh`, then connect the Search destination in the UI (demo_glen / staging). `build.mjs` takes item_type from `BR_PRODUCT_TYPE`.
 
 ## Final result VERIFIED
 - With item type `product` + `update-destination-items` + the destination connected in the UI, staging indexed all 150 products (old 305 unrelated products gone). Searches: `*` 150, `exide` 7, `vc9596` 1, `agm battery` 27, `12v` 74, `car battery` 22, `button cell` 12.
-- Search credentials live in `.env.local` as `BR_SEARCH_ACCOUNT_ID`, `BR_SEARCH_DOMAIN_KEY`, `BR_SEARCH_AUTH_KEY`; `bash scripts/search.sh "<q>" [rows]` queries staging (`facet.version=3.0` returns the facets).
+- Search credentials live in `.env.local` as `BR_SEARCH_ACCOUNT_ID`, `BR_SEARCH_DOMAIN_KEY`, `BR_SEARCH_AUTH_KEY`; `scripts/search.sh "<q>" [rows]` queries staging (`facet.version=3.0` returns the facets).
 - Dynamic facets are query-aware: "car battery" returns cca, polarity, terminal_type, start_stop, case_size; "button cell" returns format; `*` returns a mix. Manual facets (technology, voltage, warranty, capacity ranges) are NOT returned until added in the dashboard's facet management.
 - BC brand typo: FIAMM products carry brand "Fiam".
 
@@ -111,7 +128,7 @@ GET /stores/$BC_STORE_HASH/v3/catalog/products?limit=150&include=images,custom_f
 - Global search: the header search row (`components/header-search.tsx`) is on every page; content that is not in the Bloomreach catalog (FAQ, guides, blog from Amplience) is matched by an in-memory prefix index (`lib/content-search.ts`) and shown beside the product results. A redirect rule's target must keep the visitor's language: localize links to the own site (`/faq` -> `/fr/faq`); absolute or relative targets both work. A production build hides debug output unless `BR_DEBUG=1` (set it when testing locally with `next start`).
 - Commit identity for this user: `rezakalfane` / `reza.kalfane@gmail.com` (repo-local git config); Vercel linked that author (the bigcommerce.com email was blocked).
 - Project status, next steps and gotchas for the storefront live in its `HANDOFF.md` (read it first when resuming); decisions D40-D44 in `docs/decisions.md`. Data Hub cannot feed a Search content catalog from custom item types (no Search destination offered): content search in Bloomreach needs a content catalog + the Catalog Data Management API (`api.connect.bloomreach.com/dataconnect/api/v1/accounts/{id}/catalogs/{name}/items`, Bearer key, then the index API).
-- Autosuggest v2 VERIFIED behavior: works with `catalog_views=<domain>:default` (view name is only echoed; catalog name must be lowercase), proper prefix matching, but on demo_glen staging it serves the OLD tools catalog (category and brand names: hammers, wrenches, klein tools) and nothing from the batteries; `searchSuggestions`/`attributeSuggestions` always empty; production returns nothing. Needs a suggest index rebuild by Bloomreach. Re-check with `scripts/suggest-check.py` in the storefront.
+- Autosuggest v2 VERIFIED behavior: works with `catalog_views=<domain>:default` (view name is only echoed; catalog name must be lowercase), proper prefix matching, but on demo_glen staging it serves the OLD tools catalog (category and brand names: hammers, wrenches, klein tools) and nothing from the batteries; `searchSuggestions`/`attributeSuggestions` always empty; production returns nothing. Needs a suggest index rebuild by Bloomreach. Re-check with `scripts/suggest-check.py`.
 - Dev check: playwright (python) may want a newer browser build than installed; pass `executable_path` of the cached chromium headless shell.
 
 ## Gotchas
