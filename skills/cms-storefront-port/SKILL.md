@@ -10,7 +10,7 @@ description: >-
 
 # CMS storefront port
 
-Done three times (Amplience, ContentStack, Storyblok) on the same storefront. The **Storyblok repo is the most complete reference**:
+Done three times (Amplience, ContentStack, Storyblok) on the same storefront, then the three single-CMS builds were ported again to the block model. The **Storyblok repo is the most complete single-CMS reference**:
 `~/Workspaces/Storyblok/storefront` (GitHub `rezakalfane/storyblok-commerce-b2b`). Copy from it, not from the older ones.
 
 | Read | When |
@@ -20,6 +20,8 @@ Done three times (Amplience, ContentStack, Storyblok) on the same storefront. Th
 | `references/bigcommerce.md` | French catalog content, translated URLs, switcher, redirects (already in the reference code) |
 | `references/delivery.md` | GitHub, Vercel, docs, screenshots, history, permissions |
 | `references/pitfalls.md` | everything that went wrong, so it does not again |
+| `references/playbook.md` section 9 | porting an existing single-CMS storefront to the block model (copy the neutral tree, provider swap, deploy order, parity, prune) |
+| `../switchable-cms-storefront/SKILL.md` | one app that switches CMS at runtime (the donor of the neutral code) |
 
 `scripts/urltest.py <base-url>`: 26 checks (pages, redirects, language switch, hreflang, 404s) run against dev or production.
 `scripts/editor_iframe_test.mjs`: loads a page in a cross-origin iframe the way a visual editor does and checks hydration, edit attributes

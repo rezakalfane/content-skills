@@ -9,6 +9,7 @@ Claude Code skills for headless-CMS work, written while building the same Commer
 | [`contentstack`](skills/contentstack) | Contentstack: stack, content types, entries, Live Preview / Visual Builder, publishing rules. |
 | [`storyblok`](skills/storyblok) | Storyblok: components, stories, field-level translation, Management API, Visual Editor bridge. |
 | [`amplience`](skills/amplience) | Amplience Dynamic Content: schemas, content types, delivery keys, virtual staging, visualizations, time-travel preview. |
+| [`switchable-cms-storefront`](skills/switchable-cms-storefront) | One app that switches CMS at runtime: provider contract, lazy registry, proxy resolution order and gates, frame-ancestors union, switcher UX, parity testing. |
 
 The reference implementations are the repositories `contentful-commerce-b2b`, `storyblok-commerce-b2b`, `contentstack-commerce-b2b` and `amplience-commerce-b2b` (`rezakalfane` on GitHub).
 

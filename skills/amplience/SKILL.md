@@ -5,7 +5,7 @@ description: >-
   and content types, localized content, assets and delivery keys through the Management API and the GraphQL asset API with a personal
   access token; read content with the Delivery API from Next.js (Production CDN vs Preview virtual staging on Vercel); build a Page
   that stacks components; visualizations (Preview and real-time preview with dc-visualization-sdk); slots, events, editions and
-  snapshots for scheduling; preview applications; content type cards; and the "time travel" preview with a preloaded timeline. Use
+  snapshots for scheduling; preview applications; content type cards; the block model (pages and posts as ordered block lists), and the "time travel" preview with a preloaded timeline (?time=, amp_vse cookie, /api/warm, WARM_TOKEN, warm-timeline workflow). Use
   whenever the user mentions Amplience, Dynamic Content, a hub, content repository, delivery key, slot, edition, VSE or virtual
   staging, visualization, content type schema, dc-cli, or wants to redo an Amplience demo (ContentStack-style storefront on
   Amplience). Also for Amplience errors (429, EDITION_SLOT_*, "Content item name cannot be null", Invalid Snapshot Id).
@@ -25,7 +25,8 @@ preview. Everything below was run against a real hub. Read the reference that ma
 | Reading content: hosts, Production vs Preview, Filter API, limits, images | `references/delivery.md` |
 | Visualizations, real-time preview, preview applications | `references/preview.md` |
 | Slots, events, editions, snapshots, edition names | `references/scheduling.md` |
-| Time travel UI (timeline, instant switching, blink, zoom) | `references/time-travel.md` |
+| Block model (12 block types, pages and posts as ordered lists), `/preview` route, base of the switchable project | `references/blocks.md` |
+| Time travel UI (timeline, instant switching, blink, zoom), `?time=`, `/api/warm` + workflow | `references/time-travel.md` |
 | Content type cards | `references/cards.md` |
 | Vercel project, env scopes, git identity | `references/vercel.md` |
 | Something failed | `references/pitfalls.md` |
@@ -52,5 +53,6 @@ preview. Everything below was run against a real hub. Read the reference that ma
 - **Localize inside the item** (`{values:[{locale,value}]}` + `locale=fr-FR,en-US`), delivery key = URL path, one catch-all route renders any Page.
 - **One env var** (`AMPLIENCE_DELIVERY_HOST`) switches CDN (Production) / virtual staging (Preview). `/preview` is a 404 in production.
 - **VSE is rate limited (7/s, 350/min):** pace, back off on 429, share state in the Runtime Cache, run background work in `after()`.
+- **Pages are block lists:** `page.components` and `blogpost.content` are ordered links to component items (hero/slot, text, image, video, feature, categories, spotlights, guides, posts, postListing, guideListing, faqs); see `references/blocks.md`. Time travel is for preview deployments only (`?time=<date>` needs `AMPLIENCE_TIME_TOKEN`, production ignores it, `/api/warm` + `WARM_TOKEN` preloads it): `references/time-travel.md`.
 - Verify with Playwright against localhost and the deployed staging URL, not by inspection; measure (latency, requests, stability).
 - The user wanted docs, `HISTORY.md` and screenshots kept current and the repo free of any other CMS's name; commits authored as their GitHub identity.
