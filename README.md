@@ -1,6 +1,6 @@
 # content-skills
 
-Claude Code skills for headless-CMS work, written while building the same Commerce B2B storefront (Next.js + BigCommerce) on four CMSs.
+Claude Code skills for headless-CMS and search work, written while building the same Commerce B2B storefront (Next.js + BigCommerce) on four CMSs, then on Bloomreach search.
 
 | Skill | What it is |
 |---|---|
@@ -9,9 +9,10 @@ Claude Code skills for headless-CMS work, written while building the same Commer
 | [`contentstack`](skills/contentstack) | Contentstack: stack, content types, entries, Live Preview / Visual Builder, publishing rules. |
 | [`storyblok`](skills/storyblok) | Storyblok: components, stories, field-level translation, Management API, Visual Editor bridge. |
 | [`amplience`](skills/amplience) | Amplience Dynamic Content: schemas, content types, delivery keys, virtual staging, visualizations, time-travel preview. |
+| [`bloomreach-search`](skills/bloomreach-search) | Bloomreach Discovery search on the storefront: loading a catalog through Data Hub, the Search and Autosuggest APIs, facets, rules and redirects, type-ahead, content search, debug panel, deployment. Verified on a real workspace, with the gotchas. |
 | [`switchable-cms-storefront`](skills/switchable-cms-storefront) | One app that switches CMS at runtime: provider contract, lazy registry, proxy resolution order and gates, frame-ancestors union, switcher UX, parity testing. |
 
-The reference implementations are the repositories `contentful-commerce-b2b`, `storyblok-commerce-b2b`, `contentstack-commerce-b2b` and `amplience-commerce-b2b` (`rezakalfane` on GitHub).
+The reference implementations are the repositories `contentful-commerce-b2b`, `storyblok-commerce-b2b`, `contentstack-commerce-b2b` and `amplience-commerce-b2b` (`rezakalfane` on GitHub); `bloomreach-search` is based on `bloomreach-commerce-b2b`.
 
 ## Use
 
