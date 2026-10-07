@@ -1,0 +1,29 @@
+name: Warm the time travel timeline
+
+# The time preview needs a preloaded timeline of content changes (about 1-2 minutes to build). It lives in the project's Vercel Runtime Cache,
+# which every Preview deployment shares, so warming the deployment that just became ready also warms the staging site. See docs/operations.md.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Preview deployment URL to call (leave empty for the staging site)"
+        required: false
+
+jobs:
+  warm:
+    # Only for successful Preview deployments (or a manual run)
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && contains(github.event.deployment.environment, 'Preview'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/warm
+        env:
+          WARM_TOKEN: ${{ secrets.WARM_TOKEN }}
+          DEPLOYMENT_URL: ${{ github.event.deployment_status.target_url }}
+          INPUT_URL: ${{ github.event.inputs.url }}
+        run: |
+          url="${INPUT_URL:-$DEPLOYMENT_URL}"
+          url="${url:-https://amplience-commerce-b2b-git-staging-rza-kalfanes-projects.vercel.app}"
+          echo "Warming $url"
+          curl --fail --silent --show-error --max-time 295 --retry 1 --retry-delay 10 -H "x-warm-token: $WARM_TOKEN" "$url/api/warm"
+          echo

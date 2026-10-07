@@ -1,0 +1,22 @@
+/* Append to app/globals.css: the change blink and the time slider (needs the amber #f7b500 / ink #0f1b26 of the design; adjust). */
+/* Time preview: a short dotted amber blink around areas whose content changed (components/change-flash.tsx) */
+@keyframes time-flash {
+  0%, 100% { outline-color: rgb(247 181 0 / 0); }
+  50% { outline-color: rgb(247 181 0 / 1); }
+}
+.time-flash {
+  outline: 3px dotted #f7b500;
+  outline-offset: -3px;
+  animation: time-flash 0.45s ease-in-out 4;
+}
+@media (prefers-reduced-motion: reduce) {
+  .time-flash { animation: none; }
+}
+
+/* Time preview slider: a transparent track (the banner paints preload progress behind it) and an amber thumb */
+.time-slider { -webkit-appearance: none; appearance: none; background: transparent; height: 20px; margin: 0; cursor: pointer; }
+.time-slider::-webkit-slider-runnable-track { background: transparent; height: 4px; }
+.time-slider::-moz-range-track { background: transparent; height: 4px; }
+.time-slider::-webkit-slider-thumb { -webkit-appearance: none; box-sizing: border-box; width: 16px; height: 16px; margin-top: -6px; border-radius: 9999px; background: #f7b500; border: 2px solid #0f1b26; box-shadow: 0 0 0 1.5px #fff; }
+.time-slider::-moz-range-thumb { box-sizing: border-box; width: 16px; height: 16px; border-radius: 9999px; background: #f7b500; border: 2px solid #0f1b26; box-shadow: 0 0 0 1.5px #fff; }
+.time-slider:focus-visible { outline: 2px solid #fff; outline-offset: 4px; border-radius: 9999px; }
