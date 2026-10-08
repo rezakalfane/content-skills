@@ -16,6 +16,8 @@ Run them **from the folder that holds `.env.local`** (or set `ENV_FILE`), by pat
 | `lib.mjs` | Shared: loads `.env.local`, `es(method, path, body)`, `guard(index)`, `ensureIndex`, `bulkIndex` (batches of 50, retries 429/503). Never prints the key | n/a |
 | `build-products.mjs <outDir>` | Read BigCommerce products of ONE channel (`BC_CHANNEL_ID`), brands, the channel's category tree and custom fields; write `mapping.json` + `products.json` | no (files only) |
 | `build-content.mjs <outDir> [en,fr]` | Read the storefront's `/api/content/export` (needs the storefront running) and write `content-mapping.json` + `content.json` | no (files only) |
+| `setup-events.mjs [--recreate]` | Create the guarded `search-events` index (mapping in `events-mapping.mjs`: strict, one flat document per event) | **yes**, guarded |
+| `seed-events.mjs [days=45] [--dry]` | Seed SYNTHETIC demo traffic (`synthetic: true`) for the merchandiser dashboard: runs ~60 demo queries against the real `products` index (lexical query, filters, semantic fallback, did-you-mean), then simulates sessions, clicks, carts and orders over the days; re-running deletes only the previous synthetic events. Use `--dry` to see the counts first; the storefront needs 90+ days so a 30-day view has a full previous period | **yes**, guarded |
 | `load-index.mjs <index> <mapping> <docs> [--recreate]` | Create the index, bulk-index `[{id, doc}]`, refresh, verify the count | **yes**, guarded index only |
 
 Typical run:
@@ -34,7 +36,8 @@ VERIFIED result: `products` = 150 docs (visible, physical products of the channe
 ## Credentials (never print or commit values)
 In `<project>/.env.local` (check set/empty without printing: `awk -F= '/^[A-Z_]+=/{print $1, ($2==""?"EMPTY":"set")}' .env.local`):
 - `ES_URL`, `ES_ADMIN_API_KEY`: used by the loading scripts and curl (full access; never give it to the storefront).
-- `ES_READONLY_API_KEY`: read-only on `products` and `content`; the storefront uses only this one. A key made with an API key cannot have privileges, so create it in Kibana (Dev Tools: `POST /_security/api_key` with `role_descriptors` giving `read` on those indices). Before testing that it is read-only (a `_search` gives 200, a write to a throwaway id gives 403), confirm the key being used really is the read-only one (compare hashes of the two keys, never print them): run write tests against a key you have not confirmed and they WILL write (this once deleted the `content` index).
+- `ES_EVENTS_API_KEY`: write-only (`create_doc` on `search-events`); the storefront uses it to log search analytics. Also made in Kibana.
+- `ES_READONLY_API_KEY`: `read` on `products`, `content` and `search-events` (the dashboard), plus cluster `monitor_inference` if the reranker is used; the storefront uses only this one. A key made with an API key cannot have privileges, so create it in Kibana (Dev Tools: `POST /_security/api_key` with `role_descriptors` giving `read` on those indices). Before testing that it is read-only (a `_search` gives 200, a write to a throwaway id gives 403), confirm the key being used really is the read-only one (compare hashes of the two keys, never print them): run write tests against a key you have not confirmed and they WILL write (this once deleted the `content` index).
 - `ES_INDEX`, `ES_CONTENT_INDEX`, `ES_GUARD_INDEX` (`products,content`).
 - `BC_STORE_HASH`, `BC_ACCESS_TOKEN`, `BC_CHANNEL_ID`: BigCommerce source. The channel id (not a tree id) drives both the product filter (`channel_id:in=`) and the category tree (`/v3/catalog/trees?channel_id:in=`). VERIFIED.
 - `CONTENT_EXPORT_URL` (default `http://localhost:3300`), `CONTENT_EXPORT_TOKEN`: the storefront must be running with the same token in ITS env. If the token is empty the route answers 404; a wrong one gives 401. Do not export an empty `CONTENT_EXPORT_TOKEN` into the shell that starts the storefront: it overrides the storefront's own `.env.local`.
@@ -89,6 +92,13 @@ Hybrid with RRF (best default for a search box):
 Facets and filters: `term` on `brand`, `categories`, `in_stock`, `specs.voltage`; `terms` aggregations on the same keyword fields.
 Products and content together: `"index":"products,content"` with a semantic query (hits carry `_index`; read `name` or `title`). Content-only: filter `content_type` (`faq`, `buying_guide`, `blog_post`) and `locale`.
 ES|QL: `FROM products | WHERE in_stock == true | STATS n = COUNT(*), avg_price = AVG(price) BY brand | SORT n DESC | LIMIT 3` through `elastic es esql query`.
+
+## Search analytics and the merchandiser dashboard (VERIFIED)
+The storefront logs four events (search, click, add_to_cart, order) to `search-events` and shows them at `/insights` (see the storefront repo's `docs/elasticsearch.md`). `sx` links a click, a cart or an order to the search it came from; `sid` is a random per-tab id (no cookie). Definitions: click-through = searches with a click / searches; "no word match" = `via` is meaning or none (the words found nothing); empty page = `total` 0.
+- The cluster has **chat and completion endpoints** (Claude, Qwen, GLM, Kimi) and several rerankers (`.jina-reranker-v3` works; `.rerank-v1-elasticsearch` fails here). A `text_similarity_reranker` retriever needs a key allowed to call inference (`monitor_inference`); a plain read key gets 403 and the storefront falls back to words.
+- The term suggester (`suggest_mode: missing`) judges "missing" **per shard**, so a word that exists on another shard still gets suggestions ("start stop" -> "starter stop"). Check each word against the catalog vocabulary before accepting a correction; skip it for natural-language and non-English queries.
+- `rank_window_size` of an RRF or reranker retriever must be at least `from + size`; RRF totals follow its candidate set. For "the N closest by meaning" run the semantic query for N ids, then re-query with a `pinned` query on those ids so total, facets and sort stay consistent.
+- Seeding: never write test events with the admin key into a live index without marking them; delete test events afterwards with `_delete_by_query` on `synthetic: false` only when you know nothing live exists.
 
 ## Gotchas
 - Bulk: use NDJSON with `Content-Type: application/x-ndjson`, a trailing newline, and check `items[].index.error`; HTTP 200 does not mean every document succeeded. `lib.bulkIndex` does this.
