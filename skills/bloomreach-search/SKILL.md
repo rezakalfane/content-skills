@@ -141,6 +141,13 @@ GET /stores/$BC_STORE_HASH/v3/catalog/products?limit=150&include=images,custom_f
 - Autosuggest v2 VERIFIED behavior: works with `catalog_views=<domain>:default` (view name is only echoed; catalog name must be lowercase), proper prefix matching, but on demo_glen staging it serves the OLD tools catalog (category and brand names: hammers, wrenches, klein tools) and nothing from the batteries; `searchSuggestions`/`attributeSuggestions` always empty; production returns nothing. Needs a suggest index rebuild by Bloomreach. Re-check with `scripts/suggest-check.py`.
 - Dev check: playwright (python) may want a newer browser build than installed; pass `executable_path` of the cached chromium headless shell.
 
+## Deploying the storefront and rotating keys (lessons from the sibling Elasticsearch storefront; the `my-vercel` skill has the commands)
+- With the GitHub repo connected, **a push to `main` deploys production**; set Vercel variables BEFORE pushing, and poll the live behavior with curl instead of parsing `vercel ls`.
+- `BR_DEBUG=1` makes the debug panel (every Search/Suggest call, with the request) **public** on that deployment; leave it unset when that matters.
+- Rotating a key: create the new one, set it in Vercel, deploy, verify, and only then delete the old one (deleting first took a production site down until a redeploy).
+- After any change to the catalog, a key or an environment variable, test the non-default paths on the live site (French, the type-ahead, a saved debug choice), not only the home page.
+- Backend-independent UI work done on the Elasticsearch storefront has been ported here: FAQ anchors, the autosuggest panel fit, dynamic "Latest articles".
+
 ## Gotchas
 - Save raw API responses to the scratchpad directory, not the project.
 - Do not print secrets; use `set -a; . ./.env.local; set +a`.
