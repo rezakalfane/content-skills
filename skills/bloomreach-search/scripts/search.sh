@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Query the Bloomreach staging Search API (read-only). Run from the folder that holds .env.local (or set ENV_FILE).
 # Usage: bash <skill>/scripts/search.sh "<query>" [rows]
+# As a visitor in demo segments (audiences): SEGMENTS=garage,fleet bash search.sh "<query>"; REF_URL=https://www.google.com/ to test a referring-URL audience.
 set -euo pipefail
 set -a; . "${ENV_FILE:-./.env.local}"; set +a
 
@@ -11,7 +12,7 @@ curl -s -G "https://staging-core.dxpapi.com/api/v1/core/" \
   --data-urlencode "request_type=search" --data-urlencode "search_type=keyword" \
   --data-urlencode "q=$1" --data-urlencode "rows=${2:-3}" \
   --data-urlencode "fl=pid,title,brand,price,thumb_image,sku,technology,voltage" \
-  --data-urlencode "url=https://example.com" --data-urlencode "ref_url=https://example.com" \
+  --data-urlencode "url=https://example.com/${SEGMENTS:+?$(printf 'segment=audience:%s&' ${SEGMENTS//,/ })}" --data-urlencode "ref_url=${REF_URL:-https://example.com}" \
   --data-urlencode "request_id=1" --data-urlencode "_br_uid_2=uid=1" |
 python3 -I -c "
 import json,sys
