@@ -16,11 +16,12 @@ const docs = JSON.parse(readFileSync(docsFile, "utf8"));
 console.log(`index ${index}:`, await ensureIndex(index, mapping, process.argv.includes("--recreate")));
 if (process.argv.includes("--update-mapping")) {
   // only the fields the index does not have yet (the existing ones cannot change)
-  const cur = (await es("GET", `/${index}/_mapping`)).json?.[index]?.mappings?.properties ?? {};
+  // (for an alias the response is keyed by the real index behind it)
+  const cur = Object.values((await es("GET", `/${index}/_mapping`)).json ?? {})[0]?.mappings?.properties ?? {};
   const added = Object.fromEntries(Object.entries(mapping.mappings.properties).filter(([k]) => !(k in cur)));
-  if (!Object.keys(added).length) console.log("update mapping: nothing new");
+  if (!Object.keys(added).length && !mapping.mappings.dynamic_templates) console.log("update mapping: nothing new");
   else {
-    const put = await es("PUT", `/${index}/_mapping`, { properties: added });
+    const put = await es("PUT", `/${index}/_mapping`, { properties: added, ...(mapping.mappings.dynamic_templates ? { dynamic_templates: mapping.mappings.dynamic_templates } : {}) });
     console.log(`update mapping (${Object.keys(added).join(", ")}): ${put.status}`, put.status === 200 ? "ok" : JSON.stringify(put.json).slice(0, 300));
     if (put.status !== 200) process.exit(1);
   }

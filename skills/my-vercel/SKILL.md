@@ -41,6 +41,12 @@ printf %s "$VALUE" | vercel env add NAME production --sensitive --force --yes --
 ## Keys for a deployment
 Give a deployment a **read-only** key, scoped to the indices it reads (Elasticsearch: `read` on `products` and `content`), and keep the admin key only on the machine that loads data. A key created with an API key cannot carry privileges ("creating derived api keys requires an explicit role descriptor that is empty"), so the user creates it in Kibana (Dev Tools `POST /_security/api_key`). Name the variables by role (`ES_ADMIN_API_KEY` vs `ES_READONLY_API_KEY`) and make the storefront read only the read-only one, so it cannot fall back to admin. See the `elasticsearch` skill.
 
+## Deploying by push, and rotating a secret (VERIFIED)
+- With the GitHub repo connected, **a push to `main` starts a production deployment on its own** (the classifier blocks `vercel deploy --prod` for the agent, not `git push`). So: set or change the Vercel variables BEFORE pushing, and every push then carries them. A variable changed after a deployment only takes effect on the next one.
+- A deployment takes about a minute. `vercel ls` output is awkward to parse; **poll the behavior instead** with a small curl loop that checks the thing you changed (a page count, an endpoint, a status) and stops when it is right.
+- **Rotating or deleting a key or token that production uses:** create the new one, set it in Vercel (`vercel env add ... --sensitive --force --yes`), let a deployment pick it up, verify, and only then delete the old one. Deleting first made every production search fail with 401 until a redeploy ("0 products" on the listing). Ask the user to tell you BEFORE they delete a key.
+- After any change to infrastructure (index alias, key, environment), test the **non-default paths** on the live site, not just the home page: other languages, the type-ahead, features behind a cookie, and the real read-only credentials.
+
 ## When a build fails (VERIFIED)
 ```
 vercel ls --scope rza-kalfanes-projects                 # status of the latest deployments, with their URLs

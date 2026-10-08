@@ -118,11 +118,22 @@ const dfFr = new Map();
 for (const list of phrasesFr) for (const x of list) dfFr.set(x, (dfFr.get(x) ?? 0) + 1);
 
 // the French fields of one product
+let misaligned = 0;
 const frFields = (p, idx) => {
   const f = frById.get(p.id);
   const paths = [...new Set(p.categories.map((id) => chainFr(id)).filter((c) => c.length).map((c) => c.join(" > ")))]; // chainFr already leaves out the root
   const specs = (f.customFields?.edges ?? []).map((e) => e.node).filter((x) => x.value);
+  // The French name and value of each custom field, paired with the English one by position (BigCommerce returns them in the same order);
+  // the key stays the English slug so a filter means the same thing in both languages.
+  const en = p.custom_fields.filter((x) => x.value);
+  const aligned = en.length === specs.length;
+  if (!aligned) misaligned++;
+  const specsFr = {};
+  const labelsFr = {};
+  if (aligned) en.forEach((x, i) => { specsFr[slug(x.name)] = specs[i].value; labelsFr[slug(x.name)] = specs[i].name; });
   return {
+    specs_fr: specsFr,
+    spec_labels_fr: labelsFr,
     name_fr: f.name,
     description_fr: plain(f.plainTextDescription),
     category_paths_fr: paths,
@@ -185,7 +196,12 @@ const FRENCH_ANALYSIS = {
 const mapping = {
   ...(FR ? { settings: FRENCH_ANALYSIS } : {}),
   mappings: {
-    dynamic_templates: [{ specs_as_keyword: { path_match: "specs.*", mapping: { type: "keyword", ignore_above: 256 } } }],
+    dynamic_templates: [
+      { specs_as_keyword: { path_match: "specs.*", mapping: { type: "keyword", ignore_above: 256 } } },
+      // French display text of the facets: the value of each spec and the name of the field, under the same (English) key as `specs`
+      { specs_fr_as_keyword: { path_match: "specs_fr.*", mapping: { type: "keyword", ignore_above: 256 } } },
+      { spec_labels_fr_as_keyword: { path_match: "spec_labels_fr.*", mapping: { type: "keyword", ignore_above: 256 } } },
+    ],
     properties: {
       id: { type: "long" },
       sku: { type: "keyword", fields: { text: { type: "text", analyzer: "standard" } } },
@@ -217,6 +233,8 @@ const mapping = {
             specs_text_fr: { type: "text", analyzer: "fr_fold" },
             complete_fr: { type: "completion", analyzer: "fold", search_analyzer: "fold", preserve_separators: false },
             search_fr: { type: "text", analyzer: "fold" },
+            specs_fr: { type: "object" },
+            spec_labels_fr: { type: "object" },
           }
         : {}),
       ...(SEMANTIC ? { semantic: { type: "semantic_text" } } : {}),
@@ -226,6 +244,7 @@ const mapping = {
 
 writeFileSync(`${out}/mapping.json`, JSON.stringify(mapping, null, 2));
 writeFileSync(`${out}/products.json`, JSON.stringify(docs));
+if (FR) console.log(`French spec values: ${docs.filter((d) => d.doc.specs_fr && Object.keys(d.doc.specs_fr).length).length} products with specs, ${misaligned} whose English and French field lists differ in length (skipped)`);
 const specNames = new Set(docs.flatMap((d) => Object.keys(d.doc.specs)));
 console.log(`channel ${BC_CHANNEL_ID}: tree(s) ${treeIds.join(",")}, ${products.length} visible products, ${docs.length} documents`);
 console.log(`brands ${new Set(docs.map((d) => d.doc.brand)).size}, categories ${new Set(docs.flatMap((d) => d.doc.category_paths)).size} paths, spec fields ${specNames.size}: ${[...specNames].join(", ")}`);

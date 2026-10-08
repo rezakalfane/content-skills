@@ -116,6 +116,19 @@ One `products` index, language-specific fields on each product, not an index per
 - French has its own `complete_fr` field; on a French page ask both and put the French phrases first.
 - A completion suggester returns one suggestion per document (its best matching input), so many products are needed for a long suggestion list.
 
+## Keys, aliases and retrievers (VERIFIED, learned the hard way)
+- **Role for the storefront's read-only key** (create it in Kibana; an API key cannot mint privileges): `cluster: ["monitor_inference"]`, `indices: [{ names: ["products", "products_v*", "content", "search-events"], privileges: ["read"] }]`. Check any key without writing anything: `POST /_security/user/_has_privileges` called AS that key lists what it can do (never test a key by writing with it). The read-only key cannot read mappings or call `_analyze` (use admin for that).
+- **After putting an alias in front of an index, plain searches work through the alias but retrievers do not**: `rrf` and `text_similarity_reranker` open a point-in-time on the concrete index behind the alias (`indices:data/read/open_point_in_time`), so the key must also cover the real names (`products_v*`). The failure is a 403 `[rrf] search failed - retrievers ... returned errors`. Rerank also needs `monitor_inference`. The storefront falls back to the words ranking with a note when a ranking is refused and skips it for 5 minutes (a refused attempt costs ~300 ms on every call).
+- **Test every non-default path after an infrastructure change** (alias swap, key rotation, mapping change): lexical, hybrid and rerank, the type-ahead, both languages, with the REAL read-only key and a saved ranking cookie. Testing only the default search missed an outage that hit anyone with hybrid selected.
+- **Key rotation order**: create the new key, put it in Vercel, deploy, verify, and only then delete the old key. Deleting first takes the live site down (listing showed "0 products").
+- `load-index.mjs --update-mapping` on an alias: `GET /<alias>/_mapping` is keyed by the real index name, so read the first value (fixed in the script); better, load into the concrete `products_vN`.
+
+## French facets (VERIFIED)
+BigCommerce translates custom field names AND values; index them next to the English ones under the same English key: `specs_fr.<key>` (value) and `spec_labels_fr.<key>` (field name), both `keyword` through dynamic templates (add the templates with `--update-mapping`; it sends `dynamic_templates` too). The loader pairs the English and French custom fields **by position** (BigCommerce returns them in the same order; it counts mismatches and skips those products). Filters and URLs keep the English value (stable, survive a language switch); on a French page add to each facet aggregation a sub-agg `terms specs_fr.<key> size 1` (French value of each English bucket) and a sibling `terms spec_labels_fr.<key> size 1` (field name). Chips, the listing and the type-ahead show the French text and the built-in translation table is only a fallback.
+
+## Content links (FAQ)
+A FAQ hit must link to the question, not the page: the content document `_id` is `<locale>-faq-<slugified id>`, so the anchor is `faq-<slugified id>` and the link `/faq#faq-<id>`. The FAQ item opens, scrolls into view and flashes on load and on `hashchange`; a link to the page you are already on must set `location.hash` (Next's router does not fire `hashchange`).
+
 ## Gotchas
 - Bulk: use NDJSON with `Content-Type: application/x-ndjson`, a trailing newline, and check `items[].index.error`; HTTP 200 does not mean every document succeeded. `lib.bulkIndex` does this.
 - Documents are indexed by a stable `_id` (BigCommerce product id; Amplience content id), so reruns without `--recreate` upsert instead of duplicating.
