@@ -100,6 +100,12 @@ The storefront logs four events (search, click, add_to_cart, order) to `search-e
 - `rank_window_size` of an RRF or reranker retriever must be at least `from + size`; RRF totals follow its candidate set. For "the N closest by meaning" run the semantic query for N ids, then re-query with a `pinned` query on those ids so total, facets and sort stay consistent.
 - Seeding: never write test events with the admin key into a live index without marking them; delete test events afterwards with `_delete_by_query` on `synthetic: false` only when you know nothing live exists.
 
+## Completion (type-ahead) (VERIFIED)
+`build-products.mjs` writes a `complete` completion field per product: the brand, each category name and every run of 1 to 3 consecutive words of the name, as `{input, weight}` where the weight is the number of products containing the phrase (common phrases outrank model codes). Query it with a `suggest` block: `{"suggest":{"c":{"prefix":"agm bat","completion":{"field":"complete","size":5,"skip_duplicates":true}}}}` (1 to 20 ms on the server; a plain read key is enough). Add `fuzzy: {fuzziness: 1, prefix_length: 2}` for typos ("exdie" gives "exide") but ask exact and fuzzy together and prefer exact, because fuzzy matches of heavier phrases otherwise push exact ones down.
+- The default completion analyzer is `simple`, which **strips digits** ("12v 60ah" becomes "v ah"): set `analyzer` and `search_analyzer` to `standard` on the field. An analyzer cannot be changed afterwards, so a wrong first attempt means a new field name (the old one stays in the mapping, empty).
+- Add the field to a live index without deleting it: `load-index.mjs products mapping.json products.json --update-mapping` (sends only the fields the index lacks, then upserts the documents by id).
+- A completion suggester returns one suggestion per document (its best matching input), so many products are needed for a long suggestion list.
+
 ## Gotchas
 - Bulk: use NDJSON with `Content-Type: application/x-ndjson`, a trailing newline, and check `items[].index.error`; HTTP 200 does not mean every document succeeded. `lib.bulkIndex` does this.
 - Documents are indexed by a stable `_id` (BigCommerce product id; Amplience content id), so reruns without `--recreate` upsert instead of duplicating.

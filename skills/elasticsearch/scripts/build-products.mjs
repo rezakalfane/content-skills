@@ -55,7 +55,26 @@ const chainIds = (id) => {
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 const plain = (html) => String(html ?? "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 
-const docs = products.map((p) => {
+// Completion phrases for the search box: the brand, each category name, and every run of 1 to 3 consecutive words of the product name,
+// each weighted by how many products contain it, so common phrases ("agm battery") outrank rare ones (a model code).
+const STOP = new Set(["the", "for", "and", "with", "from", "pack", "set", "of", "to", "in"]);
+const words = (t) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2 && !STOP.has(w));
+const phrasesOf = (name, brand, paths) => {
+  const out = new Set();
+  if (brand) out.add(brand.toLowerCase());
+  for (const c of paths.flat()) out.add(c.toLowerCase());
+  const w = words(name);
+  for (let i = 0; i < w.length; i++) for (let n = 1; n <= 3 && i + n <= w.length; n++) out.add(w.slice(i, i + n).join(" "));
+  return [...out].filter((x) => x.length >= 2);
+};
+const phrases = products.map((p) => {
+  const paths = p.categories.map(chain).filter((c) => c.length).map((c) => c.slice(1));
+  return phrasesOf(p.name, brands.get(p.brand_id) ?? "", paths);
+});
+const df = new Map();
+for (const list of phrases) for (const x of list) df.set(x, (df.get(x) ?? 0) + 1);
+
+const docs = products.map((p, idx) => {
   const thumb = p.images.find((i) => i.is_thumbnail) ?? p.images[0];
   const paths = p.categories.map(chain).filter((c) => c.length).map((c) => c.slice(1)); // drop the root "Products"
   const specs = Object.fromEntries(p.custom_fields.map((f) => [slug(f.name), f.value]));
@@ -80,6 +99,8 @@ const docs = products.map((p) => {
       categories: [...new Set(paths.flat())],
       specs,
       date_modified: p.date_modified,
+      // completion field: lets the search box finish what is being typed (prefix, typo-tolerant, ranked by weight)
+      complete: phrases[idx].map((x) => ({ input: x, weight: df.get(x) })),
     },
   };
 });
@@ -105,6 +126,8 @@ const mapping = {
       categories: { type: "keyword" },
       specs: { type: "object" },
       date_modified: { type: "date" },
+      // `standard` keeps digits ("12v 60ah"); the default completion analyzer would strip them
+      complete: { type: "completion", analyzer: "standard", search_analyzer: "standard", preserve_separators: false },
       ...(SEMANTIC ? { semantic: { type: "semantic_text" } } : {}),
     },
   },
