@@ -129,6 +129,8 @@ const frFields = (p, idx) => {
     categories_fr: [...new Set(p.categories.flatMap(chainFr).filter((c, i, a) => a.indexOf(c) === i))],
     specs_text_fr: specs.map((x) => `${x.name} ${x.value}`).join(". "),
     complete_fr: phrasesFr[idx].map((x) => ({ input: x, weight: dfFr.get(x) })),
+    // name, categories and specs together, folded and unstemmed: one place to match every word fuzzily (French typos)
+    search_fr: [f.name, ...paths, specs.map((x) => `${x.name} ${x.value}`).join(" ")].join(". "),
   };
 };
 
@@ -164,7 +166,24 @@ const docs = products.map((p, idx) => {
   };
 });
 
+// French analysis (only when French text is loaded): elisions (l'étiquette), stop words, accent folding (electrique = électrique) and a light stemmer.
+// Analysis settings can only be given when an index is created, so a change here means a new index (load-index.mjs products_v2 ..., then swap-alias.mjs).
+const FRENCH_ANALYSIS = {
+  analysis: {
+    filter: {
+      fr_elision: { type: "elision", articles_case: true, articles: ["l", "m", "t", "qu", "n", "s", "j", "d", "c", "jusqu", "quoiqu", "lorsqu", "puisqu"] },
+      fr_stop: { type: "stop", stopwords: "_french_" },
+      fr_stem: { type: "stemmer", language: "light_french" },
+    },
+    analyzer: {
+      fr_fold: { tokenizer: "standard", filter: ["lowercase", "fr_elision", "fr_stop", "asciifolding", "fr_stem"] },
+      fold: { tokenizer: "standard", filter: ["lowercase", "asciifolding"] },
+    },
+  },
+};
+
 const mapping = {
+  ...(FR ? { settings: FRENCH_ANALYSIS } : {}),
   mappings: {
     dynamic_templates: [{ specs_as_keyword: { path_match: "specs.*", mapping: { type: "keyword", ignore_above: 256 } } }],
     properties: {
@@ -187,15 +206,17 @@ const mapping = {
       date_modified: { type: "date" },
       // `standard` keeps digits ("12v 60ah"); the default completion analyzer would strip them
       complete: { type: "completion", analyzer: "standard", search_analyzer: "standard", preserve_separators: false },
-      // French text (see the header): the `french` analyzer stems and drops elisions (l'étiquette); suggest stays on `standard` so partial words match
+      // French text (see the header). `fr_fold` stems and folds accents for matching; `raw` keeps the words as written so "did you mean" can suggest
+      // real words; suggest and completion use `fold` (no stemming) so partial words match with or without accents.
       ...(FR
         ? {
-            name_fr: { type: "text", analyzer: "french", copy_to: SEMANTIC ? ["semantic"] : undefined, fields: { keyword: { type: "keyword", ignore_above: 256 }, suggest: { type: "search_as_you_type", analyzer: "standard" } } },
-            description_fr: { type: "text", analyzer: "french", copy_to: SEMANTIC ? ["semantic"] : undefined },
-            category_paths_fr: { type: "keyword", copy_to: SEMANTIC ? ["semantic"] : undefined },
+            name_fr: { type: "text", analyzer: "fr_fold", copy_to: SEMANTIC ? ["semantic"] : undefined, fields: { keyword: { type: "keyword", ignore_above: 256 }, raw: { type: "text", analyzer: "standard" }, suggest: { type: "search_as_you_type", analyzer: "fold" } } },
+            description_fr: { type: "text", analyzer: "fr_fold", copy_to: SEMANTIC ? ["semantic"] : undefined },
+            category_paths_fr: { type: "text", analyzer: "fr_fold", copy_to: SEMANTIC ? ["semantic"] : undefined, fields: { keyword: { type: "keyword", ignore_above: 256 } } },
             categories_fr: { type: "keyword" },
-            specs_text_fr: { type: "text", analyzer: "french" },
-            complete_fr: { type: "completion", analyzer: "standard", search_analyzer: "standard", preserve_separators: false },
+            specs_text_fr: { type: "text", analyzer: "fr_fold" },
+            complete_fr: { type: "completion", analyzer: "fold", search_analyzer: "fold", preserve_separators: false },
+            search_fr: { type: "text", analyzer: "fold" },
           }
         : {}),
       ...(SEMANTIC ? { semantic: { type: "semantic_text" } } : {}),

@@ -26,10 +26,11 @@ export async function es(method, path, body) {
   return { status: res.status, json };
 }
 
-/** Writing scripts only touch the indices listed in ES_GUARD_INDEX (comma-separated). */
+/** Writing scripts only touch the indices listed in ES_GUARD_INDEX (comma-separated; a trailing * matches a prefix, e.g. products_v*). */
 export function guard(index) {
   const allowed = (env.ES_GUARD_INDEX ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  if (!allowed.includes(index)) throw new Error(`Refusing: '${index}' is not in ES_GUARD_INDEX (${allowed.join(", ") || "empty"})`);
+  const ok = allowed.some((a) => a === index || (a.endsWith("*") && index.startsWith(a.slice(0, -1))));
+  if (!ok) throw new Error(`Refusing: '${index}' is not in ES_GUARD_INDEX (${allowed.join(", ") || "empty"})`);
 }
 
 /** Index `docs` ([{id, doc}]) into `index` in batches. Returns {ok, failed, errors[]}. */
