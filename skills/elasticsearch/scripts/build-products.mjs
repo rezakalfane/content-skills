@@ -2,6 +2,8 @@
 // Usage (from the folder with .env.local, or set ENV_FILE):  node build-products.mjs <outDir>
 // Writes <outDir>/mapping.json and <outDir>/products.json ([{id, doc}] for lib.bulkIndex).
 // Needs BC_STORE_HASH, BC_ACCESS_TOKEN, BC_CHANNEL_ID. ES_SEMANTIC=false drops the semantic_text field.
+// French text (name_fr, description_fr, category_paths_fr, specs_text_fr, complete_fr) comes from the Storefront GraphQL API with
+// @shopperPreferences(locale: "fr") when BC_STOREFRONT_TOKEN is set; without it those fields are simply left out.
 // Project-specific parts to adapt for another store: BRAND_FIXES, the custom-field handling (specs), the stock field.
 import { writeFileSync, mkdirSync } from "node:fs";
 import { env } from "./lib.mjs";
@@ -55,6 +57,30 @@ const chainIds = (id) => {
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 const plain = (html) => String(html ?? "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 
+// ---- French text from BigCommerce (the Storefront GraphQL API returns translated names, descriptions, custom fields and categories)
+const FR = env.BC_STOREFRONT_TOKEN ? "fr" : "";
+const frById = new Map();
+const frCat = new Map();
+if (FR) {
+  const EP = `https://store-${BC_STORE_HASH}-${BC_CHANNEL_ID}.mybigcommerce.com/graphql`;
+  const gql = async (query) => {
+    const q = query.replace("{", ` @shopperPreferences(locale: "${FR}") {`);
+    const r = await fetch(EP, { method: "POST", headers: { Authorization: `Bearer ${env.BC_STOREFRONT_TOKEN}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: q }) });
+    const j = await r.json();
+    if (j.errors?.length) throw new Error(`storefront graphql: ${j.errors[0].message}`);
+    return j.data;
+  };
+  const ids = products.map((p) => p.id);
+  for (let i = 0; i < ids.length; i += 50) {
+    const d = await gql(`query { site { products(entityIds: [${ids.slice(i, i + 50).join(",")}], first: 50) { edges { node { entityId name plainTextDescription(characterLimit: 2000) customFields { edges { node { name value } } } } } } } }`);
+    for (const { node } of d.site.products.edges) frById.set(node.entityId, node);
+  }
+  const walk = (ns) => ns.forEach((n) => (frCat.set(n.entityId, n.name), walk(n.children ?? [])));
+  walk((await gql(`query { site { categoryTree { entityId name children { entityId name children { entityId name children { entityId name } } } } } }`)).site.categoryTree);
+  console.log(`French text for ${frById.size} of ${ids.length} products, ${frCat.size} category names`);
+}
+const chainFr = (id) => chain(id).length ? chainIds(id).reverse().map((c) => frCat.get(c)).filter(Boolean) : [];
+
 // Completion phrases for the search box: the brand, each category name, and every run of 1 to 3 consecutive words of the product name,
 // each weighted by how many products contain it, so common phrases ("agm battery") outrank rare ones (a model code).
 const STOP = new Set(["the", "for", "and", "with", "from", "pack", "set", "of", "to", "in"]);
@@ -73,6 +99,38 @@ const phrases = products.map((p) => {
 });
 const df = new Map();
 for (const list of phrases) for (const x of list) df.set(x, (df.get(x) ?? 0) + 1);
+
+// the same for French (French stop words; accents kept, the completion field uses the standard analyzer)
+const STOP_FR = new Set(["le", "la", "les", "de", "du", "des", "et", "pour", "avec", "en", "un", "une", "au", "aux", "sur", "par"]);
+const wordsFr = (t) => t.toLowerCase().split(/[^a-z0-9\u00e0-\u00ff]+/).filter((w) => w.length >= 2 && !STOP_FR.has(w));
+const phrasesFr = products.map((p) => {
+  const f = frById.get(p.id);
+  if (!f) return [];
+  const out = new Set();
+  const brand = brands.get(p.brand_id) ?? "";
+  if (brand) out.add(brand.toLowerCase());
+  for (const c of p.categories.flatMap(chainFr)) out.add(c.toLowerCase());
+  const w = wordsFr(f.name);
+  for (let i = 0; i < w.length; i++) for (let n = 1; n <= 3 && i + n <= w.length; n++) out.add(w.slice(i, i + n).join(" "));
+  return [...out].filter((x) => x.length >= 2);
+});
+const dfFr = new Map();
+for (const list of phrasesFr) for (const x of list) dfFr.set(x, (dfFr.get(x) ?? 0) + 1);
+
+// the French fields of one product
+const frFields = (p, idx) => {
+  const f = frById.get(p.id);
+  const paths = [...new Set(p.categories.map((id) => chainFr(id)).filter((c) => c.length).map((c) => c.join(" > ")))]; // chainFr already leaves out the root
+  const specs = (f.customFields?.edges ?? []).map((e) => e.node).filter((x) => x.value);
+  return {
+    name_fr: f.name,
+    description_fr: plain(f.plainTextDescription),
+    category_paths_fr: paths,
+    categories_fr: [...new Set(p.categories.flatMap(chainFr).filter((c, i, a) => a.indexOf(c) === i))],
+    specs_text_fr: specs.map((x) => `${x.name} ${x.value}`).join(". "),
+    complete_fr: phrasesFr[idx].map((x) => ({ input: x, weight: dfFr.get(x) })),
+  };
+};
 
 const docs = products.map((p, idx) => {
   const thumb = p.images.find((i) => i.is_thumbnail) ?? p.images[0];
@@ -101,6 +159,7 @@ const docs = products.map((p, idx) => {
       date_modified: p.date_modified,
       // completion field: lets the search box finish what is being typed (prefix, typo-tolerant, ranked by weight)
       complete: phrases[idx].map((x) => ({ input: x, weight: df.get(x) })),
+      ...(frById.get(p.id) ? frFields(p, idx) : {}),
     },
   };
 });
@@ -128,6 +187,17 @@ const mapping = {
       date_modified: { type: "date" },
       // `standard` keeps digits ("12v 60ah"); the default completion analyzer would strip them
       complete: { type: "completion", analyzer: "standard", search_analyzer: "standard", preserve_separators: false },
+      // French text (see the header): the `french` analyzer stems and drops elisions (l'étiquette); suggest stays on `standard` so partial words match
+      ...(FR
+        ? {
+            name_fr: { type: "text", analyzer: "french", copy_to: SEMANTIC ? ["semantic"] : undefined, fields: { keyword: { type: "keyword", ignore_above: 256 }, suggest: { type: "search_as_you_type", analyzer: "standard" } } },
+            description_fr: { type: "text", analyzer: "french", copy_to: SEMANTIC ? ["semantic"] : undefined },
+            category_paths_fr: { type: "keyword", copy_to: SEMANTIC ? ["semantic"] : undefined },
+            categories_fr: { type: "keyword" },
+            specs_text_fr: { type: "text", analyzer: "french" },
+            complete_fr: { type: "completion", analyzer: "standard", search_analyzer: "standard", preserve_separators: false },
+          }
+        : {}),
       ...(SEMANTIC ? { semantic: { type: "semantic_text" } } : {}),
     },
   },
