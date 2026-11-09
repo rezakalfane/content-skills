@@ -14,6 +14,10 @@ Claude Code skills for headless-CMS and search work, written while building the 
 
 The reference implementations are the repositories `contentful-commerce-b2b`, `storyblok-commerce-b2b`, `contentstack-commerce-b2b` and `amplience-commerce-b2b` (`rezakalfane` on GitHub); `bloomreach-search` is based on `bloomreach-commerce-b2b`.
 
+## Prompt cookbook
+
+[`COOKBOOK.md`](COOKBOOK.md) has 6 to 8 ready-to-use prompts for each skill, tagged by whether they read, write or act outside the machine.
+
 ## Use
 
 Claude Code reads skills from `~/.claude/skills/<name>`. Clone this repository and link each skill:
